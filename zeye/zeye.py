@@ -20,7 +20,7 @@ class Zeye:
         screen = np.array(screenshot)
         return cv2.cvtColor(screen, cv2.COLOR_RGB2BGR)
 
-    def click_by_image(self, image_path: str, match_confidence: float = 0.8, timeout: int = 5) -> bool:
+    def click_image(self, image_path: str, match_confidence: float = 0.8, timeout: int = 5) -> bool:
         """Waiting for, finding and clicking an image when it appears in the desktop.
 
         Args:
@@ -31,19 +31,46 @@ class Zeye:
         Returns:
             bool: If the operation was successful or not.
         """
-        screen = self._screen_grab()
+        found, rectangle_coord, screen = self.wait_for_image(
+            image_path=image_path,
+            match_confidence=match_confidence,
+            timeout=timeout,
+            add_to_history=False,
+        )
+        if found:
+            center_x, center_y = self._get_center(rectangle_coord)
 
+            self._click_at_coordenates(center_x, center_y)
+
+            self._add_to_history(rectangle_coord, screen)
+            return True
+        return False
+
+    def wait_for_image(
+        self, image_path: str, match_confidence: float = 0.8, timeout: int = 5, add_to_history=True
+    ) -> tuple[bool, tuple, np.ndarray]:
+        """Wait for image to show up.
+
+        Args:
+            image_path (str): path of image to be searched.
+            screen (np.ndarray): desktop screen grab.
+            match_confidence (float): how similar it needs to be to searched image.
+            timeout (int): time we wait for the image to show up.
+            add_to_history (bool): Adds wait to screen history
+
+        Returns:
+            tuple[bool, tuple]: operational success, possible rectangle coordnates and screenshot where was found.
+        """
         timeout_epoch = timeout + time()
         while time() < timeout_epoch:
-            found, rectangle_coord = self.find_image(image_path, screen, match_confidence)
+            screen = self._screen_grab()
+            found, rectangle_coord = self._find_image(image_path, screen, match_confidence)
             if found:
-                center_x, center_y = self._get_center(rectangle_coord)
+                if add_to_history:
+                    self._add_to_history(rectangle_coord, screen)
+            return found, rectangle_coord, screen
 
-                self._click_at_coordenates(center_x, center_y)
-
-                self._add_to_history(rectangle_coord, screen)
-                return True
-        return False
+        return False, (), np.ndarray()
 
     def _get_center(self, rectangle_coord: tuple[int, int, int, int]) -> tuple[int, int]:
         """Get x and y axis for a point in the center of a triangle
@@ -83,7 +110,7 @@ class Zeye:
         """
         return cv2.bitwise_not(img)
 
-    def find_image(self, image_path: str, screen: np.ndarray, match_confidence: float) -> tuple[bool, tuple]:
+    def _find_image(self, image_path: str, screen: np.ndarray, match_confidence: float) -> tuple[bool, tuple]:
         template = cv2.imread(image_path, cv2.IMREAD_COLOR)
         template_h, template_w = template.shape[:2]
 
@@ -155,6 +182,45 @@ class Zeye:
         cv2.rectangle(screen, (x1, y1), (x2, y2), (0, 255, 0), 2)
         self.click_history.append(screen)
 
+    def wait_for_string(
+        self,
+        target_string: str,
+        timeout: int,
+        high_contrast: bool = False,
+        invert: bool = False,
+        add_to_history: bool = True,
+    ):
+        """Wait for string to show up.
+
+        Args:
+            target_string (str): String to be searched.
+            timeout (int): time we wait for the string to show up.
+            high_contrast (bool): if the screenshot should be made high contrast.
+            invert (bool): if the screenshot should have inverted colors.
+            add_to_history (bool): Adds wait to screen history
+
+        Returns:
+            tuple[bool, tuple]: operational success and possible rectangle coordnates.
+        """
+        timeout_epoch = time() + timeout
+        while time() < timeout_epoch:
+
+            original_screen = self._screen_grab()
+            screen = original_screen
+
+            if high_contrast:
+                screen = self._highcontrast_img(screen)
+            if invert:
+                screen = self._invert_img(screen)
+
+            found, rectangle_coord = self.find_text(screen, target_string)
+            if found:
+                if add_to_history:
+                    self._add_to_history(rectangle_coord, screen)
+                return found, rectangle_coord, screen
+
+        return False, (), np.ndarray(0)
+
     def click_by_string(
         self, target_string, high_contrast: bool = False, invert: bool = False, timeout: int = 5
     ) -> bool:
@@ -169,26 +235,20 @@ class Zeye:
         Returns:
             bool: If the operation was successful or not.
         """
-        original_screen = self._screen_grab()
-        screen = original_screen
+        found, rectangle_coord, screen = self.wait_for_string(
+            target_string=target_string,
+            timeout=timeout,
+            high_contrast=high_contrast,
+            invert=invert,
+            add_to_history=False,
+        )
+        if found:
+            center_x, center_y = self._get_center(rectangle_coord)
 
-        if high_contrast:
-            screen = self._highcontrast_img(screen)
-        if invert:
-            screen = self._invert_img(screen)
+            self._click_at_coordenates(center_x, center_y)
 
-        timeout_epoch = time() + timeout
-        while time() < timeout_epoch:
-            found, rectangle_coord = self.find_text(screen, target_string)
-            if found:
-                x1, y1, x2, y2 = rectangle_coord
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-
-                self._click_at_coordenates(center_x, center_y)
-
-                self._add_to_history(rectangle_coord, original_screen)
-                return True
+            self._add_to_history(rectangle_coord, screen)
+            return True
         return False
 
     def dump_click_history(self, directory: str = "") -> None:
@@ -198,4 +258,4 @@ class Zeye:
             directory (str, optional): directory where the files will be dumped. Defaults to "".
         """
         for index in range(len(self.click_history)):
-            cv2.imwrite(os.path.join(directory, f"click_{index+1}.jpg"), self.click_history[index])
+            cv2.imwrite(os.path.join(directory, f"click_{index+1}.png"), self.click_history[index])
