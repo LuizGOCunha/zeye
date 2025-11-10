@@ -8,7 +8,7 @@ from time import time
 
 class Zeye:
     """A lightweight library that allows an automation to see elements in the desktop and interact with them using CV and OCR."""
-    click_history = []
+    action_history: list[dict] = []
 
     def _screen_grab(self) -> np.ndarray:
         """Takes a screenshot of the desktop, turns it into a np array and corrects it's colors for use in cv2.
@@ -42,7 +42,7 @@ class Zeye:
 
             self._click_at_coordenates(center_x, center_y)
 
-            self._add_to_history(rectangle_coord, screen)
+            self._add_to_history(rectangle_coord, screen, "click")
             return True
         return False
 
@@ -67,7 +67,7 @@ class Zeye:
             found, rectangle_coord = self._find_image(image_path, screen, match_confidence)
             if found:
                 if add_to_history:
-                    self._add_to_history(rectangle_coord, screen)
+                    self._add_to_history(rectangle_coord, screen, "wait")
             return found, rectangle_coord, screen
 
         return False, (), np.ndarray()
@@ -171,16 +171,17 @@ class Zeye:
         pyautogui.moveTo(x, y)
         pyautogui.click()
 
-    def _add_to_history(self, rectangle_coord: tuple[int, int, int, int], screen: np.ndarray) -> None:
+    def _add_to_history(self, rectangle_coord: tuple[int, int, int, int], screen: np.ndarray, action: str) -> None:
         """Adds an image of where in the desktop did we click to the click history
 
         Args:
             rectangle_coord (tuple[int, int, int, int]): coordenates of rectangle (x1, y1, x2, y2)
             screen (np.ndarray): array picture of the entire desktop
+            action (str): type of action that was performed.
         """
         x1, y1, x2, y2 = rectangle_coord
         cv2.rectangle(screen, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        self.click_history.append(screen)
+        self.action_history.append({"action": action, "screen": screen})
 
     def wait_for_string(
         self,
@@ -216,7 +217,7 @@ class Zeye:
             found, rectangle_coord = self.find_text(screen, target_string)
             if found:
                 if add_to_history:
-                    self._add_to_history(rectangle_coord, screen)
+                    self._add_to_history(rectangle_coord, screen, "wait")
                 return found, rectangle_coord, screen
 
         return False, (), np.ndarray(0)
@@ -247,15 +248,17 @@ class Zeye:
 
             self._click_at_coordenates(center_x, center_y)
 
-            self._add_to_history(rectangle_coord, screen)
+            self._add_to_history(rectangle_coord, screen, "click")
             return True
         return False
 
-    def dump_click_history(self, directory: str = "") -> None:
-        """Dumps click history files in a given directory and enumeartes them in order of click.
+    def dump_history(self, directory: str = "") -> None:
+        """Dumps action history files in a given directory and enumeartes them in order of click.
 
         Args:
             directory (str, optional): directory where the files will be dumped. Defaults to "".
         """
-        for index in range(len(self.click_history)):
-            cv2.imwrite(os.path.join(directory, f"click_{index+1}.png"), self.click_history[index])
+        for index in range(len(self.action_history)):
+            action = self.action_history[index]["action"]
+            screen = self.action_history[index]["screen"]
+            cv2.imwrite(os.path.join(directory, f"{action}_{index+1}.png"), screen)
